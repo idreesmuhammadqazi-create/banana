@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 import os
+import sys
+import argparse
 import requests
 
 def get_zone_records(zone_id, api_token):
@@ -18,44 +20,56 @@ def get_zone_records(zone_id, api_token):
         print(f"Error: {e}")
         return []
 
-# Get credentials from environment variable
-api_token = os.getenv("CLOUDFLARE_API_TOKEN")
-if not api_token:
-    print("Error: CLOUDFLARE_API_TOKEN environment variable not set")
-    exit(1)
+def main():
+    parser = argparse.ArgumentParser(
+        description="Debug DNS TXT records"
+    )
+    parser.add_argument("domain", help="Domain name (e.g. ihostbanana.qzz.io)")
+    parser.add_argument("zone_id", help="Cloudflare Zone ID")
 
-zone_id = "f3bbd09735bd62d420381d21c282722d"
+    args = parser.parse_args()
+    domain = args.domain
+    zone_id = args.zone_id
 
-# Fetch all DNS records
-print("Fetching all TXT records in the zone:")
-all_records = get_zone_records(zone_id, api_token)
+    # Get credentials from environment variable
+    api_token = os.getenv("CLOUDFLARE_API_TOKEN")
+    if not api_token:
+        print("Error: CLOUDFLARE_API_TOKEN environment variable not set")
+        exit(1)
 
-# Filter records matching our domain pattern
-matching_records = []
-for record in all_records:
-    if "ihostbanana.qzz.io" in record["name"]:
-        matching_records.append(record)
+    # Fetch all DNS records
+    print("Fetching all TXT records in the zone:")
+    all_records = get_zone_records(zone_id, api_token)
 
-print(f"All TXT records: {len(all_records)}")
-print(f"Matching records: {len(matching_records)}")
-
-# Check for meta record specifically
-meta_found = False
-for record in all_records:
-    if record['name'] == 'meta.ihostbanana.qzz.io':
-        print(f"\nFOUND META RECORD:")
-        print(f"Name: {record['name']}")
-        print(f"Content: {record['content']}")
-        print(f"Content type: {type(record['content'])}")
-        meta_found = True
-        break
-
-if not meta_found:
-    print("\nMETA RECORD NOT FOUND!")
-    print("All TXT records in zone:")
+    # Filter records matching our domain pattern
+    matching_records = []
     for record in all_records:
+        if domain in record["name"]:
+            matching_records.append(record)
+
+    print(f"All TXT records: {len(all_records)}")
+    print(f"Matching records: {len(matching_records)}")
+
+    # Check for meta record specifically
+    meta_found = False
+    for record in all_records:
+        if record['name'] == f'meta.{domain}':
+            print(f"\nFOUND META RECORD:")
+            print(f"Name: {record['name']}")
+            print(f"Content: {record['content']}")
+            print(f"Content type: {type(record['content'])}")
+            meta_found = True
+            break
+
+    if not meta_found:
+        print("\nMETA RECORD NOT FOUND!")
+        print("All TXT records in zone:")
+        for record in all_records:
+            print(f"Name: {record['name']}")
+
+    print(f"\nMatching records:")
+    for record in matching_records:
         print(f"Name: {record['name']}")
 
-print(f"\nMatching records:")
-for record in matching_records:
-    print(f"Name: {record['name']}")
+if __name__ == "__main__":
+    main()

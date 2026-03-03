@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-PNG Download from DNS TXT Records via Cloudflare API
+PNG Download from DNS TXT Records via Direct DNS Queries
 
-This script downloads a PNG file from DNS TXT records stored under the *.ihostbanana.qzz.io namespace.
+This script downloads a PNG file from DNS TXT records stored under a given domain namespace.
+It uses direct DNS queries (dnspython) so no API token or zone ID is needed.
 It reconstructs the file from the chunks and verifies the SHA-256 hash to ensure integrity.
 """
 
@@ -11,8 +12,8 @@ import sys
 import base64
 import hashlib
 import argparse
-import requests
 import json
+import dns.resolver
 
 # decode base64 data back to binary
 def decode_data(encoded_str):
@@ -23,77 +24,41 @@ def decode_data(encoded_str):
         encoded_str += "=" * padding_needed
     return base64.urlsafe_b64decode(encoded_str.encode("utf-8"))
 
-# get all the DNS records we care about
-def get_zone_records(zone_id, api_token, domain_pattern="ihostbanana.qzz.io"):
-    """Fetch all DNS records matching the pattern."""
-    url = f"https://api.cloudflare.com/client/v4/zones/{zone_id}/dns_records"
-    headers = {
-        "Authorization": f"Bearer {api_token}",
-        "Content-Type": "application/json"
-    }
-    params = {"type": "TXT", "per_page": 100}
-
-    all_records = []
-
+# query a single TXT record via DNS
+def query_txt_record(name):
+    """Query a DNS TXT record and return its content string."""
     try:
-        while True:
-            response = requests.get(url, headers=headers, params=params)
-            response.raise_for_status()
-            data = response.json()
-            records = data["result"]
-
-            # find records that match our pattern
-            for record in records:
-                if domain_pattern in record["name"]:
-                    all_records.append(record)
-
-            # check if there's more pages
-            if "result_info" in data and data["result_info"]["page"] < data["result_info"]["total_pages"]:
-                params["page"] = data["result_info"]["page"] + 1
-            else:
-                break
-
-        return all_records
-    except requests.exceptions.RequestException as e:
-        print(f"Error getting zone records: {e}")
+        answers = dns.resolver.resolve(name, "TXT")
+        # combine all strings in the TXT record
+        parts = []
+        for rdata in answers:
+            for txt_string in rdata.strings:
+                parts.append(txt_string.decode("utf-8"))
+        return "".join(parts)
+    except dns.resolver.NXDOMAIN:
+        return None
+    except dns.resolver.NoAnswer:
+        return None
+    except Exception as e:
+        print(f"ERROR querying {name}: {e}")
         sys.exit(1)
 
 # main download function
-def download_png(output_dir, zone_id, api_token):
+def download_png(output_dir, domain):
     """Handle the download process"""
     print("Getting DNS records...")
 
-    # get all records
-    records = get_zone_records(zone_id, api_token)
+    # fetch metadata record
+    meta_content = query_txt_record(f"meta.{domain}")
 
-    if not records:
-        print("ERROR: No records found!")
+    if not meta_content:
+        print("ERROR: No metadata found!")
         sys.exit(1)
 
-    # find the metadata record
-    metadata = None
-    chunk_records = []
-
-    for record in records:
-        # cloudflare puts quotes around TXT content
-        content = record["content"].strip('"')
-
-        if record["name"] == "meta.ihostbanana.qzz.io":
-            try:
-                metadata = json.loads(content)
-            except json.JSONDecodeError:
-                print("ERROR: Bad metadata!")
-                sys.exit(1)
-        elif record["name"].endswith(".ihostbanana.qzz.io") and record["name"] != "meta.ihostbanana.qzz.io":
-            # get the chunk number from the subdomain
-            try:
-                index = int(record["name"].split(".")[0])
-                chunk_records.append((index, content))
-            except ValueError:
-                continue
-
-    if not metadata:
-        print("ERROR: No metadata found!")
+    try:
+        metadata = json.loads(meta_content)
+    except json.JSONDecodeError:
+        print("ERROR: Bad metadata!")
         sys.exit(1)
 
     print("Found metadata:")
@@ -102,16 +67,31 @@ def download_png(output_dir, zone_id, api_token):
     print(f"  Total chunks: {metadata['total_chunks']}")
     print(f"  Hash: {metadata['sha256']}")
 
-    # check we have all chunks
-    if len(chunk_records) != metadata["total_chunks"]:
-        print(f"ERROR: Expected {metadata['total_chunks']} chunks, got {len(chunk_records)}")
+    # fetch each chunk by index
+    total_chunks = metadata["total_chunks"]
+    chunk_records = []
+
+    for i in range(total_chunks):
+        chunk_name = f"{i:03d}.{domain}"
+        content = query_txt_record(chunk_name)
+
+        if content is None:
+            print(f"ERROR: Missing chunk {i:03d}!")
+            sys.exit(1)
+
+        chunk_records.append((i, content))
+
+        # print progress every 10 chunks
+        if (i + 1) % 10 == 0 or (i + 1) == total_chunks:
+            print(f"  Fetched chunk {i + 1}/{total_chunks}")
+
+    if len(chunk_records) != total_chunks:
+        print(f"ERROR: Expected {total_chunks} chunks, got {len(chunk_records)}")
         sys.exit(1)
 
-    # sort chunks and put them together
     chunk_records.sort(key=lambda x: x[0])
     all_data = "".join([chunk for _, chunk in chunk_records])
 
-    # decode the data
     print("Decoding data...")
     try:
         decoded_bytes = decode_data(all_data)
@@ -119,14 +99,12 @@ def download_png(output_dir, zone_id, api_token):
         print(f"ERROR decoding: {e}")
         sys.exit(1)
 
-    # check the hash
     print("Checking hash...")
     computed_hash = hashlib.sha256(decoded_bytes).hexdigest()
     if computed_hash != metadata["sha256"]:
         print("ERROR: Hash doesn't match!")
         sys.exit(1)
 
-    # save the file
     output_path = os.path.join(output_dir, metadata["filename"])
     with open(output_path, "wb") as f:
         f.write(decoded_bytes)
@@ -134,7 +112,6 @@ def download_png(output_dir, zone_id, api_token):
     print(f"File saved: {output_path}")
     print(f"Size: {len(decoded_bytes)} bytes")
 
-# main function for command line
 def main():
     """Main function"""
     parser = argparse.ArgumentParser(
@@ -142,17 +119,14 @@ def main():
     )
 
     parser.add_argument("output_dir", help="Where to save the PNG")
-    parser.add_argument("zone_id", help="Cloudflare Zone ID")
-    parser.add_argument("api_token", help="API token")
+    parser.add_argument("domain", help="Domain name (e.g. ihostbanana.qzz.io)")
 
     args = parser.parse_args()
 
-    # make sure output dir exists
     if not os.path.isdir(args.output_dir):
         os.makedirs(args.output_dir, exist_ok=True)
 
-    download_png(args.output_dir, args.zone_id, args.api_token)
+    download_png(args.output_dir, args.domain)
 
-# run the program
 if __name__ == "__main__":
     main()

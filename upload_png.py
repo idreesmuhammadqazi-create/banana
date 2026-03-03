@@ -37,7 +37,7 @@ def chunk_data(data, chunk_size=200):
     return chunks
 
 # get all the DNS records we care about
-def get_zone_records(zone_id, api_token, domain_pattern="ihostbanana.qzz.io"):
+def get_zone_records(zone_id, api_token, domain_pattern):
     """Fetch all DNS records matching the pattern."""
     url = f"https://api.cloudflare.com/client/v4/zones/{zone_id}/dns_records"
     headers = {
@@ -114,7 +114,7 @@ def create_zone_record(zone_id, api_token, name, content):
         sys.exit(1)
 
 # main upload function
-def upload_png(file_path, zone_id, api_token):
+def upload_png(file_path, domain, zone_id, api_token):
     """Handle the upload process"""
     print(f"Uploading file: {file_path}")
 
@@ -146,7 +146,7 @@ def upload_png(file_path, zone_id, api_token):
 
     # delete old records first
     print("Cleaning up old records...")
-    old_records = get_zone_records(zone_id, api_token)
+    old_records = get_zone_records(zone_id, api_token, domain)
     for record in old_records:
         delete_zone_record(zone_id, api_token, record["id"])
         print(f"Deleted: {record['name']}")
@@ -159,7 +159,7 @@ def upload_png(file_path, zone_id, api_token):
         "sha256": file_hash
     }
     meta_json = json.dumps(meta_info)
-    success = create_zone_record(zone_id, api_token, "meta.ihostbanana.qzz.io", meta_json)
+    success = create_zone_record(zone_id, api_token, f"meta.{domain}", meta_json)
     if success:
         print("Made metadata record")
     else:
@@ -169,7 +169,7 @@ def upload_png(file_path, zone_id, api_token):
     # make all the chunk records
     print("Making chunk records...")
     for i, chunk in enumerate(chunks):
-        record_name = f"{i:03d}.ihostbanana.qzz.io"
+        record_name = f"{i:03d}.{domain}"
         create_zone_record(zone_id, api_token, record_name, chunk)
         if (i + 1) % 10 == 0 or i + 1 == num_chunks:
             print(f"Done {i + 1}/{num_chunks} chunks")
@@ -184,12 +184,13 @@ def main():
     )
 
     parser.add_argument("file_path", help="PNG file to upload")
+    parser.add_argument("domain", help="Domain name (e.g. ihostbanana.qzz.io)")
     parser.add_argument("zone_id", help="Cloudflare Zone ID")
     parser.add_argument("api_token", help="API token")
 
     args = parser.parse_args()
 
-    upload_png(args.file_path, args.zone_id, args.api_token)
+    upload_png(args.file_path, args.domain, args.zone_id, args.api_token)
 
 # run the program
 if __name__ == "__main__":
