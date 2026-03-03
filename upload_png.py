@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-PNG Upload to DNS TXT Records via Cloudflare API
-This script uploads a PNG file by encoding it into base64 and splitting it into
+File Upload to DNS TXT Records via Cloudflare API
+This script uploads any file by encoding it into base64 and splitting it into
 chunks stored in DNS TXT records. It also creates a metadata record for reconstruction.
+Because why limit ourselves to PNGs when we can shove literally anything into DNS?
 """
 
 import os
@@ -122,11 +123,7 @@ def upload_png(file_path, domain, zone_id, api_token):
     if not os.path.isfile(file_path):
         print(f"ERROR: File {file_path} not found!")
         sys.exit(1)
-
-    # check if it's a PNG
-    if not file_path.lower().endswith(".png"):
-        print("ERROR: Must be a PNG file!")
-        sys.exit(1)
+    #check if it's a PNG (not any more!!!!)
 
     # read the file
     with open(file_path, "rb") as f:
@@ -180,10 +177,10 @@ def upload_png(file_path, domain, zone_id, api_token):
 def main():
     """Main function"""
     parser = argparse.ArgumentParser(
-        description="Upload PNG to DNS records"
+        description="Upload any file to DNS records. Yes, any file. We don't judge."
     )
 
-    parser.add_argument("file_path", help="PNG file to upload")
+    parser.add_argument("file_path", help="File to upload (any type — go wild)")
     parser.add_argument("domain", help="Domain name (e.g. ihostbanana.qzz.io)")
     parser.add_argument("zone_id", help="Cloudflare Zone ID")
     parser.add_argument("api_token", help="API token")
