@@ -109,10 +109,11 @@ def letter(file_path, domain, zone_id,api_token, title, author):
     if not os.path.isfile(file_path):
         print(f"ERROR 404: File not found!")
         sys.exit(1)
-        if not file_path.lower().endswith(".md"):
+    if not file_path.lower().endswith(".md"):
             print("ERROR file is not a .md (only devs are allowed to post letters)!")
             sys.exit(1)
-        with open(file_path, "r") as f:
+    else:
+        with open(file_path, "rb") as f:
             data=f.read()
             encoded_letter=encode_data(data)
             chunks=chunk_data(encoded_letter)
@@ -121,4 +122,45 @@ def letter(file_path, domain, zone_id,api_token, title, author):
             print(f"file hash: {nohash}")
             print(f"chunks: {chunknum}")
             print(f"size in bytes: {os.path.getsize(file_path)}")
-            
+            subdomain= f"letter.{domain}"
+            print("cleaning your previous mess up ...")
+            old= get_zone_records(zone_id, api_token, subdomain)
+            for record in old:
+                delete_zone_record(zone_id, api_token, record["id"])
+                print(f"Deleted: {record['name']} with content: {record['content']}")
+            from datetime import datetime, timezone
+            meta = {
+                "title": title,
+                "author": author,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "chunks": chunknum,
+                "hash": nohash,
+                "encoding": "base64",
+                "filename": os.path.basename(file_path)
+
+            }
+            metajson = json.dumps(meta)
+            success = create_zone_record(zone_id, api_token, f"meta.{subdomain}", metajson)
+            if not success:
+                print("failed to make meta record(dont ask me why ?)")
+                sys.exit(1)
+            else:
+                print("made the meta record")
+                for i, chunk in enumerate(chunks):
+                    record=f"{i:03d}.{subdomain}"
+                    create_zone_record(zone_id, api_token, record,chunk)
+                    print(f"created record {record}")
+                print("done! your letter is now posted on the blockchain (well kind of)")
+                print(f"anyone can read it with: python readletter.py {domain}")
+def main():
+    parser = argparse.ArgumentParser(description="Post a letter as DNS records on Cloudflare")
+    parser.add_argument("file_path", help="path to the .md file")
+    parser.add_argument("domain",help="your domain name ")
+    parser.add_argument("zone_id",help="Cloudflare zone ID")
+    parser.add_argument("api_token",help="cloudflare API token with DNS edit permissions")
+    parser.add_argument("--title",required=True, help="letter title")
+    parser.add_argument("--author",default="banana guy",help="duh!!")
+    args = parser.parse_args()
+    letter(args.file_path, args.domain, args.zone_id, args.api_token, args.title, args.author)
+if __name__ == "__main__":
+    main()

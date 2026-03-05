@@ -9,6 +9,7 @@ This Python script is your ticket to the wonderful world of abusing DNS for file
 - **Upload Mode**: Takes your innocent file — PNG, JPEG, PDF, ZIP, your grandma's secret recipe in `.docx` — and turns it into a bunch of DNS TXT records. Because why use actual file storage when you can spam DNS servers?
 - **Download Mode**: Queries DNS directly like a caveman — no API tokens, no credentials, just raw DNS queries. Because DNS records are public and we're not above exploiting that.
 - **Any File Type**: We used to be PNG snobs. Not anymore. If it's a file, we'll shove it into DNS. No questions asked.
+- **Open Letters / Blog Posts**: Post Markdown files to DNS and let anyone read them with pretty terminal rendering. It's like Medium, but worse in every conceivable way. 📬
 - **Configurable Domain**: All scripts now accept a domain name as a command-line argument. Bring your own domain to the DNS abuse party — we're not picky!
 - **Metadata Preservation**: Remembers your filename and other boring details. Because we'd hate for you to forget what you uploaded.
 - **Idempotent Upload**: Wipes out old records before creating new ones. Clean slate, every time!
@@ -19,17 +20,18 @@ This Python script is your ticket to the wonderful world of abusing DNS for file
 - Python 3.6 or later (we're not supporting dinosaurs here)
 - `requests` library for uploading (which you can install with `pip install requests`)
 - `dnspython` library for downloading (which you can install with `pip install dnspython`)
-- Cloudflare API token (go get one from your Cloudflare dashboard — only needed for **uploading**)
-- Cloudflare Zone ID (also available in your Cloudflare dashboard — again, only for **uploading**)
+- `rich` library for reading letters/blog posts in style (which you can install with `pip install rich`)
+- Cloudflare API token (go get one from your Cloudflare dashboard — only needed for **uploading/posting**)
+- Cloudflare Zone ID (also available in your Cloudflare dashboard — again, only for **uploading/posting**)
 
 ## Setup
 
 1. Install dependencies :
    ```bash
-   pip install requests dnspython
+   pip install requests dnspython rich
    ```
 
-2. Get your Cloudflare API token with DNS edit permissions (you'll pass this as a command argument when **uploading** — downloading doesn't need any of that nonsense)
+2. Get your Cloudflare API token with DNS edit permissions (you'll pass this as a command argument when **uploading** — downloading/reading doesn't need any of that nonsense)
 
 ## Usage
 
@@ -58,6 +60,32 @@ python download_png.py ./my_precious_files ihostbanana.qzz.io
 ```
 
 *That's it. No API token. No zone ID. Just point it at a directory, tell it which domain to query, and let DNS do its thing. Because DNS records are public, baby — anyone with `dnspython` and a dream can grab your files. Security through obscurity at its finest.*
+
+### Post a Letter / Blog Post 📬
+
+```bash
+python letter.py <markdown_file> <domain> <cloudflare_zone_id> <api_token> --title "Your Title" --author "Your Name"
+```
+
+**Example** :
+```bash
+python letter.py letter.md ihostbanana.qzz.io 0123456789abcdef0123456789abcdef your_api_token_here --title "Dear Internet" --author "BananaMan"
+```
+
+*Post your hot takes, manifestos, and open letters directly to DNS. It's like blogging, except your hosting provider is the entire global DNS infrastructure. The `--author` flag defaults to "banana guy" because we know our audience.*
+
+### Read a Letter / Blog Post 📖
+
+```bash
+python getblog.py <domain>
+```
+
+**Example** :
+```bash
+python getblog.py ihostbanana.qzz.io
+```
+
+*That's it. No API token. No credentials. No account. Just a domain name and a dream. The letter gets fetched from DNS, verified for integrity, and rendered as beautiful Markdown right in your terminal using `rich`. It's like RSS but with more DNS abuse.*
 
 ### Debug Script
 
@@ -89,14 +117,37 @@ python debug_records.py <domain> <cloudflare_zone_id>
 6. **Verifies SHA-256**: To make sure we didn't break anything... this time.
 7. **Saves your file**: In the location you specified, with the original filename and extension. Probably.
 
+### Letter / Blog Post Process (The "DNS is My CMS" Phase)
+
+**Posting** (`letter.py`):
+1. **Reads your Markdown**: Only `.md` files allowed — we have standards. Low ones, but still.
+2. **Encodes and chunks**: Same base64 + chunking pipeline as file uploads.
+3. **Cleans up old letter**: Deletes previous letter records. One letter per domain, take it or leave it.
+4. **Creates metadata**: `meta.letter.<domain>` — stores title, author, timestamp, hash, and chunk count.
+5. **Creates chunk records**: `000.letter.<domain>`, `001.letter.<domain>`, etc.
+
+**Reading** (`getblog.py`):
+1. **Queries DNS**: Fetches metadata from `meta.letter.<domain>`. No credentials needed.
+2. **Fetches all chunks**: Grabs each chunk record and stitches them together.
+3. **Verifies integrity**: SHA-256 hash check — because we don't trust the internet. Shocking, right?
+4. **Renders in terminal**: Uses `rich` to display your Markdown with proper formatting, colors, and a fancy header panel. It's beautiful. We cried.
+
 ## Records Structure
 
 All the chaos happens under `*.<domain>` — you pick the domain, we'll trash it (e.g. `*.ihostbanana.qzz.io`):
+
+### File Storage Records
 - `meta.<domain>`: The boss record with all the important gossip (filename, encoding, chunk count, SHA-256 hash)
 - `000.<domain>`: Chunk #1 - the beginning of your data adventure
 - `001.<domain>`: Chunk #2 - the middle bit
 - `...`: More chunks than you probably wanted
 - `148.<domain>`: The final chunk (or whatever number we end up with)
+
+### Letter / Blog Post Records
+- `meta.letter.<domain>`: The letter's metadata (title, author, timestamp, hash, chunk count)
+- `000.letter.<domain>`: First chunk of your literary masterpiece
+- `001.letter.<domain>`: Second chunk
+- `...`: You get the idea
 
 ## Important Notes (That You Should Probably Read)
 
@@ -104,9 +155,10 @@ All the chaos happens under `*.<domain>` — you pick the domain, we'll trash it
 - **Proxying**: Records are NOT proxied. Because that would be too sensible.
 - **File Size Limit**: ~10KB recommended. Go bigger and you'll have more DNS records than your ISP can handle.
 - **File Types**: Literally anything. PNGs, JPEGs, PDFs, ZIPs, executables, your diary — it's all just bytes to us.
+- **Letters**: Must be Markdown (`.md`). We're not savages. Well, we are, but we're savages with formatting standards.
 - **Idempotency**: We delete everything before uploading. Clean slate, every single time.
-- **Error Messages**: If something breaks, we'll tell you. Probably.
+- **Error Messages**: If something breaks, we'll tell you. Probably. With attitude.
 - **DNS Propagation**: Might take a few minutes. Patience is a virtue, or so they say.
-- **Dependencies**: `requests` is for uploading (Cloudflare API), `dnspython` is for downloading (direct DNS queries). Choose your own adventure, or just install both like a responsible adult.
+- **Dependencies**: `requests` is for uploading (Cloudflare API), `dnspython` is for downloading (direct DNS queries), `rich` is for making letters look pretty in your terminal. Install all three like a responsible adult: `pip install requests dnspython rich`
 
-**Disclaimer**: This is probably not the best way to store files. But hey, it works! Use at your own risk, and don't blame us if your DNS admin hunts you down. 🏃‍♂️
+**Disclaimer**: This is probably not the best way to store files or publish blog posts. But hey, it works! Use at your own risk, and don't blame us if your DNS admin hunts you down. 🏃‍♂️
